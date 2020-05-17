@@ -79,6 +79,8 @@ def main():
                         help='Keep 30-second preview tracks')
     parser.add_argument('-v', '--version', action='store_true', default=False,
                         help='Display the current version of SoundScrape')
+    parser.add_argument('-A', '--avoid-duplicates', action='store_true', default=False,
+                        help='Avoids downloading files that have similar filenames to existing files in the working directory')
 
     args = parser.parse_args()
     vargs = vars(args)
@@ -117,7 +119,6 @@ def main():
         process_musicbed(vargs)
     else:
         process_soundcloud(vargs)
-
 
 ####################################################################
 # SoundCloud
@@ -290,7 +291,7 @@ def process_soundcloud(vargs):
                                 filenames.append(filename)
 
         if not aggressive:
-            filenames = download_tracks(client, tracks, num_tracks, vargs['downloadable'], vargs['folders'], vargs['path'],
+            filenames = download_tracks(client, tracks, num_tracks, vargs['downloadable'], vargs['folders'], vargs['path'], vargs['avoid_duplicates'],
                                         id3_extras=id3_extras)
 
     if vargs['open']:
@@ -365,7 +366,7 @@ def download_track(track, album_name=u'', keep_previews=False, folders=False, fi
 
     return filename
 
-def download_tracks(client, tracks, num_tracks=sys.maxsize, downloadable=False, folders=False, custom_path='', id3_extras={}):
+def download_tracks(client, tracks, num_tracks=sys.maxsize, downloadable=False, folders=False, custom_path='', avoid_duplicates=False, id3_extras={}):
     """
     Given a list of tracks, iteratively download all of them.
 
@@ -432,17 +433,24 @@ def download_tracks(client, tracks, num_tracks=sys.maxsize, downloadable=False, 
                     puts_safe(colored.yellow("Track already downloaded: ") + colored.white(track_title))
                     continue
 
+                if avoid_duplicates:
+                    globResults = glob.glob('*' + track_title + '*')
+                    if globResults:
+                        puts_safe(colored.green("Similar filename found for ") + colored.white(track_title) + colored.green(" Download aborted"))
+                        continue
+
                 puts_safe(colored.green("Downloading") + colored.white(": " + track['title']))
-
-
                 if track.get('direct', False):
                     location = track['stream_url']
                 else:
-                    stream = client.get(track['stream_url'], allow_redirects=False, limit=200)
-                    if hasattr(stream, 'location'):
-                        location = stream.location
-                    else:
-                        location = stream.url
+                    try:
+                        stream = client.get(track['stream_url'], allow_redirects=False, limit=200)
+                        if hasattr(stream, 'location'):
+                            location = stream.location
+                        else:
+                            location = stream.url
+                    except requests.exceptions.HTTPError:
+                        continue
 
                 filename = download_file(location, track_filename)
                 tagged = tag_file(filename,
